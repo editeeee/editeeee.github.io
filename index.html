@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DataCheck — Automated CSV Quality Analyzer</title>
+    <!-- PapaParse for robust CSV parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- Inter Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --info: #3b82f6;
+            --slate-50: #f8fafc;
+            --slate-100: #f1f5f9;
+            --slate-200: #e2e8f0;
+            --slate-700: #334155;
+            --slate-800: #1e293b;
+            --slate-900: #0f172a;
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; background-color: var(--slate-50); color: var(--slate-900); line-height: 1.5; -webkit-font-smoothing: antialiased; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+        
+        /* Typography */
+        h1, h2, h3 { font-weight: 800; letter-spacing: -0.025em; }
+        .text-muted { color: #64748b; }
+        
+        /* Buttons */
+        .btn { display: inline-flex; align-items: center; justify-content: center; padding: 0.625rem 1.25rem; border-radius: 0.5rem; font-weight: 600; cursor: pointer; transition: all 0.2s; border: none; font-size: 0.875rem; gap: 0.5rem; text-decoration: none; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-hover); transform: translateY(-1px); }
+        .btn-outline { background: white; border: 1px solid var(--slate-200); color: var(--slate-700); }
+        .btn-outline:hover { background: var(--slate-100); }
+
+        /* States */
+        #upload-view, #dashboard-view { transition: opacity 0.3s ease; }
+        .hidden { display: none !important; }
+
+        /* Landing Screen */
+        .landing-card { text-align: center; max-width: 700px; margin: 4rem auto; }
+        .drop-zone { background: white; border: 2px dashed var(--slate-200); border-radius: 1.5rem; padding: 4rem 2rem; margin-top: 2rem; transition: all 0.2s; cursor: pointer; position: relative; }
+        .drop-zone:hover, .drop-zone.dragover { border-color: var(--primary); background: #f0f7ff; }
+        .drop-zone-icon { font-size: 3rem; margin-bottom: 1rem; display: block; }
+        
+        /* Dashboard */
+        .header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 2rem; border-bottom: 1px solid var(--slate-200); padding-bottom: 1.5rem; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
+        .card { background: white; padding: 1.5rem; border-radius: 1rem; border: 1px solid var(--slate-200); box-shadow: var(--shadow); }
+        .stat-label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: #64748b; letter-spacing: 0.05em; }
+        .stat-value { font-size: 1.875rem; font-weight: 800; color: var(--slate-900); }
+
+        /* Score Section */
+        .score-container { display: flex; align-items: center; gap: 2rem; background: var(--slate-900); color: white; padding: 2rem; border-radius: 1rem; margin-bottom: 2rem; }
+        .score-circle { width: 100px; height: 100px; border-radius: 50%; border: 8px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-size: 1.75rem; font-weight: 800; position: relative; }
+        .score-circle-fill { position: absolute; top: -8px; left: -8px; width: 100px; height: 100px; border-radius: 50%; border: 8px solid var(--success); clip-path: polygon(50% 50%, 50% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 0%, 50% 0%); transform: rotate(0deg); transition: transform 1s ease; }
+        .score-details h3 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+        .score-info { font-size: 0.8125rem; color: #94a3b8; text-decoration: underline; cursor: help; }
+
+        /* Issues */
+        .issues-section { display: grid; grid-template-columns: 1fr 350px; gap: 1.5rem; margin-bottom: 2rem; }
+        @media (max-width: 900px) { .issues-section { grid-template-columns: 1fr; } }
+        .issue-item { display: flex; gap: 1rem; padding: 1rem; border-radius: 0.75rem; margin-bottom: 0.75rem; border-left: 4px solid #ddd; }
+        .issue-critical { background: #fef2f2; border-left-color: var(--danger); color: #991b1b; }
+        .issue-warning { background: #fffbeb; border-left-color: var(--warning); color: #92400e; }
+        .issue-info { background: #eff6ff; border-left-color: var(--info); color: #1e40af; }
+        .issue-tag { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; padding: 0.125rem 0.375rem; border-radius: 0.25rem; background: rgba(0,0,0,0.05); margin-bottom: 0.25rem; display: inline-block; }
+
+        /* Tables */
+        .table-wrap { overflow-x: auto; border: 1px solid var(--slate-200); border-radius: 0.75rem; background: white; margin-bottom: 2rem; }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.875rem; }
+        th { background: var(--slate-50); padding: 1rem; font-weight: 600; color: #64748b; border-bottom: 1px solid var(--slate-200); }
+        td { padding: 1rem; border-bottom: 1px solid var(--slate-100); }
+        .badge { font-size: 0.75rem; padding: 0.2rem 0.5rem; border-radius: 1rem; font-weight: 500; }
+        .badge-missing { background: #fee2e2; color: #ef4444; }
+        .badge-type { background: #f1f5f9; color: #475569; }
+
+        /* Preview Search */
+        .preview-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; margin-top: 2rem; }
+        .search-input { padding: 0.5rem 1rem; border: 1px solid var(--slate-200); border-radius: 0.5rem; width: 300px; font-size: 0.875rem; outline: none; }
+        .search-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+
+        /* Simple Charts */
+        .chart-bar-container { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem; }
+        .chart-bar { height: 8px; background: var(--primary); border-radius: 4px; transition: width 0.6s ease; }
+        .chart-bg { flex: 1; height: 8px; background: var(--slate-100); border-radius: 4px; overflow: hidden; }
+
+        /* Report Modal */
+        #clean-summary { padding: 1rem; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 0.5rem; margin-bottom: 1rem; font-size: 0.875rem; color: #166534; }
+    </style>
+</head>
+<body>
+
+<div id="upload-view" class="container">
+    <div class="landing-card">
+        <h1>Find problems in your data before they become expensive.</h1>
+        <p class="text-muted" style="margin-top: 1rem; font-size: 1.125rem;">
+            Upload a CSV and instantly detect missing values, duplicates, inconsistencies, invalid data, and statistical outliers.
+        </p>
+        
+        <div class="drop-zone" id="drop-zone">
+            <span class="drop-zone-icon">📄</span>
+            <p style="font-size: 1.25rem; font-weight: 700;">Drop your CSV here</p>
+            <p class="text-muted">or <span style="color: var(--primary); text-decoration: underline;">browse files</span></p>
+            <input type="file" id="file-input" accept=".csv" class="hidden">
+        </div>
+
+        <p class="text-muted" style="margin-top: 2rem; font-size: 0.875rem;">
+            🔒 <strong>Your data never leaves your browser.</strong> Processing happens entirely on your device.
+        </p>
+    </div>
+</div>
+
+<div id="dashboard-view" class="container hidden">
+    <div class="header">
+        <div>
+            <h1 style="color: var(--primary);">DataCheck</h1>
+            <p class="text-muted">Analysis for <strong id="display-filename" style="color: var(--slate-900);">filename.csv</strong></p>
+        </div>
+        <button class="btn btn-outline" onclick="location.reload()">Analyze another CSV</button>
+    </div>
+
+    <div class="stats-grid">
+        <div class="card">
+            <p class="stat-label">Total Rows</p>
+            <p class="stat-value" id="stat-rows">-</p>
+        </div>
+        <div class="card">
+            <p class="stat-label">Total Columns</p>
+            <p class="stat-value" id="stat-cols">-</p>
+        </div>
+        <div class="card">
+            <p class="stat-label">Missing Values</p>
+            <p class="stat-value" id="stat-missing" style="color: var(--warning);">-</p>
+        </div>
+        <div class="card">
+            <p class="stat-label">Duplicate Rows</p>
+            <p class="stat-value" id="stat-dupes" style="color: var(--danger);">-</p>
+        </div>
+    </div>
+
+    <div class="score-container">
+        <div class="score-circle">
+            <div id="score-ring" class="score-circle-fill"></div>
+            <span id="stat-score">0</span>
+        </div>
+        <div class="score-details">
+            <p class="stat-label" style="color: #94a3b8;">Heuristic Quality Score</p>
+            <h3>Dataset is <span id="score-label">Calculating...</span></h3>
+            <p class="score-info" onclick="alert('The score starts at 100 and is reduced based on missing data percentage, duplicate rows, empty columns, and formatting inconsistencies.')">How is this calculated?</p>
+        </div>
+        <div style="margin-left: auto; display: flex; gap: 1rem;">
+            <button class="btn btn-primary" onclick="downloadCleanCSV()">Download Cleaned CSV</button>
+            <button class="btn btn-outline" style="background: transparent; color: white;" onclick="downloadReport()">Download Report</button>
+        </div>
+    </div>
+
+    <div id="clean-summary" class="hidden"></div>
+
+    <div class="issues-section">
+        <div class="card">
+            <h3 style="margin-bottom: 1.5rem;">Issues Found</h3>
+            <div id="issues-list">
+                <!-- Issues go here -->
+            </div>
+        </div>
+        <div class="card">
+            <h3 style="margin-bottom: 1.5rem;">Missing Data by Column</h3>
+            <div id="missing-chart">
+                <!-- Simple bar chart goes here -->
+            </div>
+        </div>
+    </div>
+
+    <h3 style="margin-bottom: 1rem;">Column Profiling</h3>
+    <div class="table-wrap">
+        <table id="profile-table">
+            <thead>
+                <tr>
+                    <th>Column</th>
+                    <th>Inferred Type</th>
+                    <th>Missing</th>
+                    <th>Unique Values</th>
+                    <th>Outliers</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <div class="preview-controls">
+        <h3>Data Preview (First 50 Rows)</h3>
+        <input type="text" id="preview-search" class="search-input" placeholder="Search rows...">
+    </div>
+    <div class="table-wrap">
+        <table id="preview-table">
+            <thead><tr id="preview-head"></tr></thead>
+            <tbody id="preview-body"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const uploadView = document.getElementById('upload-view');
+    const dashboardView = document.getElementById('dashboard-view');
+    
+    // Core state
+    let globalData = [];
+    let globalMeta = {};
+    let globalFilename = "";
+    let columnStats = {};
+    let issues = [];
+    let cleanedData = [];
+
+    // --- Interaction Logic ---
+
+    dropZone.onclick = () => fileInput.click();
+    
+    dropZone.ondragover = (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+    };
+
+    dropZone.ondragleave = () => dropZone.classList.remove('dragover');
+
+    dropZone.ondrop = (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    };
+
+    fileInput.onchange = (e) => {
+        if (e.target.files.length) handleFile(e.target.files[0]);
+    };
+
+    function handleFile(file) {
+        if (!file.name.endsWith('.csv')) {
+            alert('Please upload a valid CSV file.');
+            return;
+        }
+        globalFilename = file.name;
+        Papa.parse(file, {
+            header: true,
+            skipEmptyLines: true,
+            complete: (results) => {
+                if (results.data.length === 0) {
+                    alert('The CSV file appears to be empty.');
+                    return;
+                }
+                processData(results);
+            },
+            error: (err) => {
+                alert('Error parsing CSV: ' + err.message);
+            }
+        });
+    }
+
+    // --- Analysis Engine ---
+
+    function processData(results) {
+        globalData = results.data;
+        globalMeta = results.meta;
+        const headers = results.meta.fields;
+        const rowCount = globalData.length;
+
+        // Reset state
+        columnStats = {};
+        issues = [];
+        
+        // 1. Analyze Duplicates
+        const seenRows = new Set();
+        let duplicateCount = 0;
+        cleanedData = [];
+
+        globalData.forEach(row => {
+            const rowStr = JSON.stringify(row).trim();
+            if (seenRows.has(rowStr)) {
+                duplicateCount++;
+            } else {
+                seenRows.add(rowStr);
+                // Basic cleaning: Trim whitespace
+                const cleanedRow = {};
+                for (let key in row) {
+                    cleanedRow[key] = typeof row[key] === 'string' ? row[key].trim() : row[key];
+                }
+                cleanedData.push(cleanedRow);
+            }
+        });
+
+        // 2. Column Profiling
+        headers.forEach(col => {
+            const values = globalData.map(r => r[col]).filter(v => v !== undefined && v !== null);
+            const nonNullValues = values.filter(v => v.toString().trim() !== "");
+            const missingCount = rowCount - nonNullValues.length;
+            const uniqueValues = new Set(nonNullValues);
+            
+            // Inferred Type
+            const type = inferType(nonNullValues.slice(0, 100)); // Sample 100 rows
+            
+            // Outliers & Stats
+            let outliers = 0;
+            let numericStats = null;
+            if (type === 'Integer' || type === 'Decimal') {
+                numericStats = calculateNumericStats(nonNullValues.map(v => parseFloat(v)));
+                outliers = numericStats.outliers.length;
+            }
+
+            // Consistency check
+            let inconsistencyFound = false;
+            if (type === 'Text') {
+                const normSet = new Set(nonNullValues.map(v => v.toString().toLowerCase().trim()));
+                if (normSet.size < uniqueValues.size) inconsistencyFound = true;
+            }
+
+            columnStats[col] = {
+                type,
+                missingCount,
+                missingPercent: ((missingCount / rowCount) * 100).toFixed(1),
+                uniqueCount: uniqueValues.size,
+                outliers,
+                isConstant: uniqueValues.size === 1 && missingCount < rowCount,
+                isEmpty: missingCount === rowCount,
+                inconsistent: inconsistencyFound,
+                numericStats
+            };
+
+            // Generate Issues
+            if (columnStats[col].isEmpty) {
+                issues.push({ level: 'critical', cat: 'Empty Column', msg: `Column "${col}" contains no data.` });
+            } else if (columnStats[col].missingPercent > 20) {
+                issues.push({ level: 'warning', cat: 'Missing Values', msg: `"${col}" is missing ${columnStats[col].missingPercent}% of data.` });
+            }
+
+            if (columnStats[col].inconsistent) {
+                issues.push({ level: 'warning', cat: 'Inconsistency', msg: `"${col}" has inconsistent casing or spacing (e.g., "India" vs "india").` });
+            }
+
+            if (outliers > 0) {
+                issues.push({ level: 'info', cat: 'Outliers', msg: `"${col}" has ${outliers} potential statistical outliers.` });
+            }
+
+            if (type === 'Email') {
+                const invalidEmails = nonNullValues.filter(v => !validateEmail(v));
+                if (invalidEmails.length > 0) {
+                    issues.push({ level: 'critical', cat: 'Invalid Email', msg: `"${col}" contains ${invalidEmails.length} malformed email addresses.` });
+                }
+            }
+        });
+
+        if (duplicateCount > 0) {
+            issues.push({ level: 'warning', cat: 'Duplicates', msg: `${duplicateCount} identical rows detected.` });
+        }
+
+        // 3. Score Calculation
+        let score = 100;
+        score -= (duplicateCount > 0 ? 5 : 0);
+        headers.forEach(c => {
+            const stats = columnStats[c];
+            if (stats.isEmpty) score -= 10;
+            if (stats.missingPercent > 5) score -= (stats.missingPercent / 10);
+            if (stats.inconsistent) score -= 2;
+        });
+        score = Math.max(0, Math.round(score));
+
+        renderDashboard(rowCount, headers.length, duplicateCount, score);
+    }
+
+    function inferType(samples) {
+        if (samples.length === 0) return 'Text';
+        
+        const isEmail = samples.every(v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v));
+        if (isEmail) return 'Email';
+
+        const isBool = samples.every(v => ['true', 'false', '0', '1', 'yes', 'no'].includes(v.toString().toLowerCase()));
+        if (isBool) return 'Boolean';
+
+        const isNumeric = samples.every(v => !isNaN(v) && v !== "");
+        if (isNumeric) {
+            return samples.every(v => Number.isInteger(parseFloat(v))) ? 'Integer' : 'Decimal';
+        }
+
+        const isDate = samples.every(v => !isNaN(Date.parse(v)));
+        if (isDate) return 'Date';
+
+        return 'Text';
+    }
+
+    function calculateNumericStats(nums) {
+        nums.sort((a, b) => a - b);
+        const q1 = nums[Math.floor(nums.length / 4)];
+        const q3 = nums[Math.floor(nums.length * (3 / 4))];
+        const iqr = q3 - q1;
+        const lowBound = q1 - 1.5 * iqr;
+        const upBound = q3 + 1.5 * iqr;
+        return {
+            min: nums[0],
+            max: nums[nums.length - 1],
+            outliers: nums.filter(n => n < lowBound || n > upBound)
+        };
+    }
+
+    function validateEmail(email) {
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    }
+
+    // --- UI Rendering ---
+
+    function renderDashboard(rowCount, colCount, duplicateCount, score) {
+        uploadView.classList.add('hidden');
+        dashboardView.classList.remove('hidden');
+
+        document.getElementById('display-filename').innerText = globalFilename;
+        document.getElementById('stat-rows').innerText = rowCount.toLocaleString();
+        document.getElementById('stat-cols').innerText = colCount;
+        document.getElementById('stat-dupes').innerText = duplicateCount;
+        
+        let totalMissing = 0;
+        for (let k in columnStats) totalMissing += columnStats[k].missingCount;
+        document.getElementById('stat-missing').innerText = totalMissing.toLocaleString();
+
+        // Score Ring
+        const scoreRing = document.getElementById('score-ring');
+        document.getElementById('stat-score').innerText = score;
+        const rotation = (score / 100) * 360;
+        scoreRing.style.clipPath = score > 50 
+            ? 'none' 
+            : `polygon(50% 50%, 50% 0%, 100% 0%, 100% ${rotation}%, 50% 50%)`; // Simple visual approximation
+        
+        const labels = { 90: 'Excellent', 70: 'Good', 50: 'Average', 30: 'Poor', 0: 'Critical' };
+        let label = 'Critical';
+        for (let threshold in labels) {
+            if (score >= threshold) label = labels[threshold];
+        }
+        document.getElementById('score-label').innerText = label;
+
+        // Issues
+        const issuesList = document.getElementById('issues-list');
+        issuesList.innerHTML = issues.length ? '' : '<p class="text-muted">No major issues found. Great job!</p>';
+        issues.sort((a,b) => (a.level === 'critical' ? -1 : 1)).forEach(issue => {
+            const div = document.createElement('div');
+            div.className = `issue-item issue-${issue.level}`;
+            div.innerHTML = `
+                <div>
+                    <span class="issue-tag">${issue.cat}</span>
+                    <p style="font-weight:600;">${issue.msg}</p>
+                </div>
+            `;
+            issuesList.appendChild(div);
+        });
+
+        // Profiling Table
+        const profileBody = document.querySelector('#profile-table tbody');
+        profileBody.innerHTML = '';
+        for (let col in columnStats) {
+            const s = columnStats[col];
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><strong>${col}</strong></td>
+                <td><span class="badge badge-type">${s.type}</span></td>
+                <td>
+                    ${s.missingCount > 0 ? `<span class="badge badge-missing">${s.missingPercent}%</span>` : '0%'}
+                </td>
+                <td>${s.uniqueCount}</td>
+                <td>${s.outliers > 0 ? `<span style="color:var(--danger); font-weight:bold;">${s.outliers}</span>` : '0'}</td>
+            `;
+            profileBody.appendChild(tr);
+        }
+
+        // Missing Chart
+        const chartBox = document.getElementById('missing-chart');
+        chartBox.innerHTML = '';
+        Object.keys(columnStats).slice(0, 10).forEach(col => {
+            const s = columnStats[col];
+            const row = document.createElement('div');
+            row.style.marginBottom = '0.75rem';
+            row.innerHTML = `
+                <div style="display:flex; justify-content:space-between; font-size:0.75rem; margin-bottom:2px;">
+                    <span>${col}</span>
+                    <span>${s.missingPercent}%</span>
+                </div>
+                <div class="chart-bg"><div class="chart-bar" style="width:${s.missingPercent}%"></div></div>
+            `;
+            chartBox.appendChild(row);
+        });
+
+        // Data Preview
+        updatePreview();
+    }
+
+    function updatePreview(query = "") {
+        const head = document.getElementById('preview-head');
+        const body = document.getElementById('preview-body');
+        const headers = globalMeta.fields;
+        
+        head.innerHTML = headers.map(h => `<th>${h}</th>`).join('');
+        
+        let displayData = globalData.slice(0, 50);
+        if (query) {
+            displayData = globalData.filter(row => 
+                Object.values(row).some(v => v.toString().toLowerCase().includes(query.toLowerCase()))
+            ).slice(0, 50);
+        }
+
+        body.innerHTML = displayData.map(row => `
+            <tr>${headers.map(h => `<td>${row[h] || ''}</td>`).join('')}</tr>
+        `).join('');
+    }
+
+    document.getElementById('preview-search').oninput = (e) => {
+        updatePreview(e.target.value);
+    };
+
+    // --- Export Logic ---
+
+    function downloadCleanCSV() {
+        const csv = Papa.unparse(cleanedData);
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `cleaned_${globalFilename}`;
+        a.click();
+        
+        const summary = document.getElementById('clean-summary');
+        summary.innerHTML = `✨ <strong>Cleaned CSV generated!</strong> Removed ${globalData.length - cleanedData.length} duplicate rows and trimmed whitespace from all cells.`;
+        summary.classList.remove('hidden');
+    }
+
+    function downloadReport() {
+        const reportContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>DataCheck Report - ${globalFilename}</title>
+                <style>
+                    body { font-family: sans-serif; padding: 40px; color: #333; line-height: 1.6; }
+                    .header { border-bottom: 2px solid #2563eb; padding-bottom: 20px; margin-bottom: 20px; }
+                    .stat-box { display: inline-block; padding: 20px; background: #f1f5f9; border-radius: 10px; margin-right: 20px; margin-bottom: 20px; }
+                    .issue { padding: 10px; margin-bottom: 5px; border-radius: 5px; }
+                    .critical { background: #fee2e2; }
+                    .warning { background: #fffbeb; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                    th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+                    th { background: #f8fafc; }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <h1>Data Quality Report</h1>
+                    <p>File: ${globalFilename} | Analyzed on: ${new Date().toLocaleString()}</p>
+                </div>
+                <h2>Summary Score: ${document.getElementById('stat-score').innerText}/100</h2>
+                <div class="stat-box"><strong>Rows:</strong><br>${globalData.length}</div>
+                <div class="stat-box"><strong>Columns:</strong><br>${globalMeta.fields.length}</div>
+                <div class="stat-box"><strong>Duplicates:</strong><br>${document.getElementById('stat-dupes').innerText}</div>
+                
+                <h2>Issues Detected</h2>
+                ${issues.map(i => `<div class="issue ${i.level}"><strong>[${i.cat}]</strong> ${i.msg}</div>`).join('')}
+                
+                <h2>Column Details</h2>
+                <table>
+                    <thead><tr><th>Column</th><th>Type</th><th>Missing</th><th>Unique</th><th>Outliers</th></tr></thead>
+                    <tbody>
+                        ${Object.keys(columnStats).map(c => {
+                            const s = columnStats[c];
+                            return `<tr><td>${c}</td><td>${s.type}</td><td>${s.missingPercent}%</td><td>${s.uniqueCount}</td><td>${s.outliers}</td></tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </body>
+            </html>
+        `;
+        const blob = new Blob([reportContent], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `DataCheck_Report_${globalFilename.replace('.csv', '')}.html`;
+        a.click();
+    }
+</script>
+
+</body>
+</html>
